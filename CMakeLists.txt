@@ -35,6 +35,7 @@ else()
 endif()
 
 set(CMAKE_INSTALL_MESSAGE NEVER)
+add_compile_options("/experimental:batch-compile-")
 
 # check and set CMAKE_CXX_STANDARD
 string(FIND "${CMAKE_CXX_FLAGS}" "-std=c++" env_cxx_standard)
