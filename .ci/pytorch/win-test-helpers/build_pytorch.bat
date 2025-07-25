@@ -106,6 +106,8 @@ sccache --start-server
 sccache --zero-stats
 set CMAKE_C_COMPILER_LAUNCHER=sccache
 set CMAKE_CXX_COMPILER_LAUNCHER=sccache
+set SCCACHE_ERROR_LOG=sccache-%OUR_GITHUB_JOB_ID%.log
+set SCCACHE_LOG=debug
 
 set CMAKE_GENERATOR=Ninja
 
