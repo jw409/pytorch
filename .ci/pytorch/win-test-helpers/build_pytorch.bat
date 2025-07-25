@@ -101,13 +101,14 @@ if "%TORCH_CUDA_ARCH_LIST%" == "" set TORCH_CUDA_ARCH_LIST=8.6
 :: The default sccache idle timeout is 600, which is too short and leads to intermittent build errors.
 set SCCACHE_IDLE_TIMEOUT=0
 set SCCACHE_IGNORE_SERVER_IO_ERROR=1
+set SCCACHE_ERROR_LOG=sccache-%OUR_GITHUB_JOB_ID%.log
+set SCCACHE_LOG=debug
+
 sccache --stop-server
 sccache --start-server
 sccache --zero-stats
 set CMAKE_C_COMPILER_LAUNCHER=sccache
 set CMAKE_CXX_COMPILER_LAUNCHER=sccache
-set SCCACHE_ERROR_LOG=sccache-%OUR_GITHUB_JOB_ID%.log
-set SCCACHE_LOG=debug
 
 set CMAKE_GENERATOR=Ninja
 
