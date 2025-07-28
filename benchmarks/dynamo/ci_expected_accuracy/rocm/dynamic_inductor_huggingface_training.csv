@@ -46,14 +46,6 @@ CamemBert,pass,5
 
 
 
-DebertaForMaskedLM,pass,5
-
-
-
-DebertaForQuestionAnswering,pass,5
-
-
-
 DebertaV2ForMaskedLM,pass_due_to_skip,0
 
 
@@ -155,10 +147,6 @@ RobertaForCausalLM,pass,5
 
 
 RobertaForQuestionAnswering,pass,5
-
-
-
-Speech2Text2ForCausalLM,pass,6
 
 
 
