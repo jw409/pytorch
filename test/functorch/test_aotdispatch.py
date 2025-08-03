@@ -5368,7 +5368,7 @@ def forward(self, arg0_1, arg1_1, arg2_1):
             RuntimeError,
             "Found a graph input that requires gradients, and received a mutation",
         ):
-            aot_export_module(mod, [inp], trace_joint=False)
+            aot_export_module(mod, [inp], trace_joint=True)
 
     def test_aot_export_input_mutation_on_parameter_banned(self):
         def fn(p, x):
