@@ -21,7 +21,7 @@ namespace vec {
 // accessed as `at::vec`.
 inline namespace CPU_CAPABILITY {
 
-#if defined(CPU_CAPABILITY_SVE256) && defined(__ARM_FEATURE_BF16)
+#if defined(CPU_CAPABILITY_SVE) && defined(__ARM_FEATURE_BF16)
 
 template <>
 struct is_vec_specialized_for<BFloat16> : std::bool_constant<true> {};
@@ -588,7 +588,7 @@ Vectorized<BFloat16> inline fmadd(
   return a * b + c;
 }
 
-#endif // defined(CPU_CAPABILITY_SVE) && defined(__ARM_FEATURE_BF16)
+#else // defined(CPU_CAPABILITY_SVE) && defined(__ARM_FEATURE_BF16)
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wignored-qualifiers"
@@ -634,6 +634,9 @@ LOAD_FP32_NON_VECTORIZED_INIT(BFloat16, bf16);
 LOAD_FP32_NON_VECTORIZED_INIT(Half, fp16);
 
 #pragma GCC diagnostic pop
+
+#endif // defined(CPU_CAPABILITY_SVE) && defined(__ARM_FEATURE_BF16)
+
 
 } // namespace CPU_CAPABILITY
 } // namespace vec
