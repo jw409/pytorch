@@ -48,6 +48,7 @@ from ..utils import (
     cache_on_self,
     DelayReplaceLine,
     get_benchmark_name,
+    get_dtype_size,
     IndentedBuffer,
     is_codegen_graph_partition_subgraph,
     LineContext,
@@ -586,9 +587,78 @@ class MemoryPlanningLine(WrapperLine):
         return f"{type(self).__name__}({', '.join(args)})"
 
 
+class EfficientPeakEstimate:
+    def __init__(self):
+        from ..memory import estimate_peak_memory
+
+        self.overall_peak_memory, _ = estimate_peak_memory(
+            V.graph.scheduler.nodes,
+            {},
+            OrderedSet(V.graph.get_output_names()),
+        )
+
+        from .segmented_tree import SegmentedTree
+
+        self.segmented_tree = SegmentedTree(
+            [0] * (2 + len(V.graph.wrapper_code.lines)), operator.add, max, 0
+        )
+        self.current_position = 0
+        self.current_value = 0
+        self.free_line_indices = {}
+
+    def _get_size(self, node: BufferLike) -> int:
+        return V.graph.sizevars.size_hint(
+            V.graph.get_allocation_storage_size(node), fallback=0
+        ) * get_dtype_size(node.get_dtype())
+
+    def register_allocation(self, line: AllocateLine | int):
+        if isinstance(line, AllocateLine):
+            line = self._get_size(line.node)
+
+        self.current_position += 1
+        self.current_value += line
+        assert self.current_position <= self.segmented_tree.n
+        self.segmented_tree.update_range(
+            self.current_position, self.current_position, self.current_value
+        )
+
+    def register_deallocation(self, line: FreeIfNotReusedLine | int):
+        if isinstance(line, FreeIfNotReusedLine):
+            self.free_line_indices[line.node.get_name()] = self.current_position + 1
+            line = self._get_size(line.node)
+
+        self.current_position += 1
+        self.current_value -= line
+        assert self.current_position <= self.segmented_tree.n
+        # graphs may reuse inputs, so their overall "current_value" may be negative
+        # assert self.current_value >= 0
+        self.segmented_tree.update_range(
+            self.current_position, self.current_position, self.current_value
+        )
+
+    def peak_since(self, line: FreeIfNotReusedLine):
+        return self.segmented_tree.summarize_range(
+            self.free_line_indices[line.node.get_name()], self.segmented_tree.n - 1
+        )
+
+    def deregister_deallocation(self, line: FreeIfNotReusedLine):
+        value = self._get_size(line.node)
+        self.current_value += value
+        return self.segmented_tree.update_range(
+            self.free_line_indices[line.node.get_name()], self.current_position, value
+        )
+
+
 @dataclasses.dataclass
 class AllocateLine(MemoryPlanningLine):
     node: BufferLike
+
+    def should_reuse_buffer(self, free_line: FreeIfNotReusedLine, size: int) -> bool:
+        # return True
+        overall_peak_memory = self.wrapper.estimate_peak.overall_peak_memory
+        peak_memory_in_range = self.wrapper.estimate_peak.peak_since(free_line)
+        new_peak_memory = size + peak_memory_in_range
+        return new_peak_memory <= overall_peak_memory
 
     def plan(self, state: MemoryPlanningState) -> MemoryPlanningLine:
         if self.node.get_name() in V.graph.removed_buffers:
@@ -598,8 +668,17 @@ class AllocateLine(MemoryPlanningLine):
         key = buffer_reuse_key(self.node)
         if config.allow_buffer_reuse and key in state:
             free_line = state.pop(key)
-            free_line.is_reused = True
-            return ReuseLine(self.wrapper, free_line.node, self.node)
+            size = V.graph.sizevars.size_hint(
+                V.graph.get_allocation_storage_size(self.node), fallback=0
+            ) * get_dtype_size(self.node.get_dtype())
+            if self.should_reuse_buffer(free_line, size):
+                free_line.is_reused = True
+                self.wrapper.estimate_peak.deregister_deallocation(free_line)
+                return ReuseLine(self.wrapper, free_line.node, self.node)
+            else:
+                state.push(key, free_line)
+                self.wrapper.estimate_peak.register_allocation(self)
+                return self
 
         if self.node.get_device_or_error().type == "cpu":
             static_shape = self.wrapper.static_shape_for_buffer_or_none(self.node)
@@ -608,6 +687,7 @@ class AllocateLine(MemoryPlanningLine):
                     functools.reduce(operator.mul, static_shape, 1)
                 )
 
+        self.wrapper.estimate_peak.register_allocation(self)
         return self
 
     def codegen(self, code: IndentedBuffer) -> None:
@@ -634,6 +714,7 @@ class FreeIfNotReusedLine(MemoryPlanningLine):
             return NullLine(self.wrapper)
         if config.allow_buffer_reuse:
             state.push(buffer_reuse_key(self.node), self)
+        self.wrapper.estimate_peak.register_deallocation(self)
         return self
 
     def codegen(self, code: IndentedBuffer) -> None:
@@ -1633,6 +1714,7 @@ class PythonWrapperCodegen(CodeGen):
         if is_inference and config.memory_planning:
             self.memory_plan()
         else:
+            self.estimate_peak = EfficientPeakEstimate()
             self.memory_plan_reuse()
 
     def codegen_input_symbol_assignment(
